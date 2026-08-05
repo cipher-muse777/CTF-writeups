@@ -1,0 +1,249 @@
+# 1. RSA ORACLE 
+Can you abuse the oracle?
+An attacker was able to intercept communications between a bank and a fintech company. They managed to get the message (ciphertext) and the password that was used to encrypt the message.
+Additional details will be available after launching your challenge instance.
+
+## SOLUTION
+- rsa oracle wasnt giving the password directly so i realised we'll have to outsmart the oracle
+- i first encrypted 1,2,3,4 and obtained their ciphertext and used it to find N
+
+FINAL CODE
+```
+import math
+
+e = 65537
+data = [
+        (49, 4374671741411819653095065203638363839705760144524191633605358134684143978321095859047126585649272872908765432040943055399247499744070371810470682366100689),
+        (50, 4707619883686427763240856106433203231481313994680729548861877810439954027216515481620077982254465432294427487895036699854948548980054737181231034760249505),
+        (51, 1998517197048216725617978890728205902760633363770165103499700157925986170022682604311921651991344892635565706489644418147980643978563559991322776155635395),
+        (52, 3993239489061277327472930109138093827255646312769901312414509207541733524779884801267968848884701166599834406248783129646083261476137481855550108336137485),
+    ]
+
+def getN(stuff, e):
+        a, b = stuff[0]
+        n_val = b - pow(a, e)
+        for x, y in stuff[1:]:
+            tmp = y - pow(x, e)
+            n_val = math.gcd(tmp, n_val)
+        return abs(n_val)
+
+print(getN(data, e))
+```
+- i got the N as 5507598452356422225755194020880876452588463543445995226287547479009566151786764261801368190219042978883834809435145954028371516656752643743433517325277971
+- then applied that in c' = c * 2^e mod N
+
+FINAL CODE
+```
+  n = int("5507598452356422225755194020880876452588463543445995226287547479009566151786764261801368190219042978883834809435145954028371516656752643743433517325277971")
+e = 65537
+C_pass = int(3567252736412634555920569398403787395170577668834666742330267390011828943495692402033350307843527370186546259265692029368644049938630024394169760506488003)   
+s = 2
+cprime = (C_pass * pow(s, e, n)) % n
+print(cprime)
+```
+- then when i put it into oracle for decryption it gave me 66666272c6
+- then when i ran it in a python  i got m (utf-8): 3319c
+
+ FINAL CODE 
+```
+n = 5507598452356422225755194020880876452588463543445995226287547479009566151786764261801368190219042978883834809435145954028371516656752643743433517325277971
+
+p2_hex = "66666272c6"
+p2 = int(p2_hex, 16)  
+
+
+s = 2
+inv_s = pow(s, -1, n)
+
+m = (p2 * inv_s) % n
+
+k = (n.bit_length() + 7) // 8
+m_bytes = m.to_bytes(k, "big")
+
+
+
+print("m (utf-8):", m_bytes.rstrip(b'\x00').decode('utf-8'))
+```
+- then i opened openssl enc -aes-256-cbc -d -in secret.enc using 3319c as password
+- hence got the flag
+
+<img width="1269" height="198" alt="Screenshot 2025-10-31 141853" src="https://github.com/user-attachments/assets/ebafe845-4900-490f-98b0-1659ff3f86a6" />
+
+## FLAG 
+picoCTF{su((3ss_(r@ck1ng_r3@_3319c817}
+
+## CONCEPTS LEARNED 
+- how RSA Encryption Formula is c ≡ m^e (mod n)
+- how openssl helps us decrypt stuff
+- how we can manipulate the oracle usind rsa multiplicative cipher
+
+## RESOURCES
+https://github.com/RsaCtfTool/RsaCtfTool
+https://cryptohack.org/challenges/rsa/
+
+
+# 2. CUSTOM ENCRYPTION 
+Can you get sense of this code file and write the function that will decode the given encrypted file content.
+Find the encrypted file here flag_info and code file might be good to analyze and get the flag.
+
+## SOLTUION 
+- the given file revealed that it combined  XOR encryption with a multiplicative cipher with a shared key using the Diffie-Hellman formula
+- the XOR key takes the message and mixes it up with the word "trudeau" and reversing the plaintext
+- the multiplicative cipher, multiplies each letter by a particular number which was formed using Diffie-Hellman formula 
+
+- so to solve it we must first reverse the multiplication (divide by shared_key × 311) and then reverse the XOR with "trudeau" again
+```
+ cipher.append(((ord(char) * key*311)))
+```
+refers to encrypted_number = ASCII_value × key × 311 so to decrypt we must ASCII_value = encrypted_number ÷ (key × 311)
+
+- to solve the xor part we must first reverse the plaintext then we can just use the xor operation again which will simply give the original data back
+
+- FINAL CODE
+  
+  ```
+   def decrypt(cipher, key):
+    plaintext = ""
+    for num in cipher:
+        # Reverse the multiplicative encryption: cipher = (char * key * 311)
+        if num == 0:
+            plaintext += chr(0)
+        else:
+            char_val = num // (key * 311)
+            plaintext += chr(char_val)
+    return plaintext
+
+  def dynamic_xor_decrypt(cipher_text, text_key):
+    plain_text = ""
+    key_length = len(text_key)
+    for i, char in enumerate(cipher_text):
+        key_char = text_key[i % key_length]
+        decrypted_char = chr(ord(char) ^ ord(key_char))
+        plain_text += decrypted_char
+    return plain_text[::-1]  # Reverse at the end since encryption was done in reverse
+
+  def generator(g, x, p):
+    return pow(g, x) % p
+
+  def decode_flag(cipher):
+    p = 97
+    g = 31
+    a = 95
+    b = 21
+    
+    # Regenerate the shared key
+    u = generator(g, a, p)
+    v = generator(g, b, p)
+    key = generator(v, a, p)
+    
+    # First decrypt the multiplicative cipher
+    semi_cipher = decrypt(cipher, key)
+    
+    # Then decrypt the XOR cipher
+    plaintext = dynamic_xor_decrypt(semi_cipher, "trudeau")
+    
+    return plaintext
+
+  The cipher from the file
+  cipher = [237915, 1850450, 1850450, 158610, 2458455, 2273410, 1744710, 1744710, 1797580, 1110270, 0, 2194105, 555135, 132175, 1797580, 0, 581570, 2273410, 26435, 1638970, 634440, 713745, 158610, 158610, 449395, 158610, 687310, 1348185, 845920, 1295315, 687310, 185045, 317220, 449395]
+
+  Decode the flag
+  flag = decode_flag(cipher)
+  print(f"Decoded flag: {flag}")
+```
+````
+## FLAG
+picoCTF{custom_d2cr0pt6d_66778b34}
+
+## CONCEPTS LEARNED 
+- how XOR encryption takes the message and mixes it up using a particular word 
+
+```
+semi_cipher = dynamic_xor_encrypt(plain_text, text_key)
+```
+```
+def dynamic_xor_encrypt(plaintext, text_key):
+    cipher_text = ""
+    key_length = len(text_key)
+    for i, char in enumerate(plaintext[::-1]):           **Reverse the string**
+        key_char = text_key[i % key_length]              **Get next key letter "t","r","u","d","e","a","u"**
+        encrypted_char = chr(ord(char) ^ ord(key_char))  **XOR OPERATION**
+        cipher_text += encrypted_char
+    return cipher_text  **Returns XOR-scrambled text**
+```
+
+- how we can form shared key using Diffie-Hellman formula
+```
+   a = randint(p-10, p)
+    b = randint(g-10, g)
+    print(f"a = {a}")
+    print(f"b = {b}")
+```
+```  
+    # ========== SHARED KEY CALCULATION ==========
+    u = generator(g, a, p)        # ← Part of shared key math
+    v = generator(g, b, p)        # ← Part of shared key math  
+    key = generator(v, a, p)      # ← FINAL SHARED KEY calculated
+    b_key = generator(u, b, p)    # ← Same shared key from other side
+    
+    shared_key = None
+    if key == b_key:
+        shared_key = key          # ← This is the SECRET NUMBER (61 in our case)
+    else:
+        print("Invalid key")
+        return
+```
+
+- how multiplicative cipher uses this shared key to decode it further
+```
+def encrypt(plaintext, key):
+    cipher = []
+    for char in plaintext:
+        cipher.append(((ord(char) * key * 311)))  # ← MULTIPLICATION OPERATION
+        # key is the shared_key (61)
+        # Each letter gets multiplied by 61 × 311
+    return cipher  # ← Returns the final encrypted numbers
+```
+
+## RESOURCES 
+https://www.geeksforgeeks.org/computer-networks/implementation-diffie-hellman-algorithm/
+https://www.geeksforgeeks.org/dsa/xor-cipher/
+https://www.geeksforgeeks.org/computer-networks/what-is-multiplicative-cipher-in-cryptography/
+https://www.pycryptodome.org/
+
+# 3. MINIRSA 
+Let's decrypt this: ciphertext? Something seems a bit small.
+
+## SOLUTION 
+- in the given ciphertext the N was too big, e too small and c too small
+- but from the given text, we dudced that ciphertext = plaintext³ N since e is 3 and that N being so big lets us ignore the initial mod N in the formula
+- so we take the length of initial bit and then divide by 3 to find the initial length of our original number and make a number out of that size using 1 <<
+- then if we write a loop to keep on guessing this number by squaring the number and checking how well many times this number fits into our og number using c//(x*x) and each time the guess becomes more and more accurate
+- and then finally we stop guessing number when the next number is worse or equal to our previous guess
+- at last we converted bits to bytes and then finally to plaintext.
+
+  FINAL CODE
+ ```
+c=2205316413931134031074603746928247799030155221252519872650080519263755075355825243327515211479747536697517688468095325517209911688684309894900992899707504087647575997847717180766377832435022794675332132906451858990782325436498952049751141
+x = 1 << ((c.bit_length() + 2)//3)          
+while True:
+    y = (2*x + c//(x*x)) // 3
+    if y >= x:
+        m = x; break
+    x = y
+plaintext = m.to_bytes((m.bit_length()+7)//8, 'big')
+print(plaintext.decode())
+```
+## FLAG 
+picoCTF{n33d_a_lArg3r_e_d0cd6eae}
+
+## CONCEPTS LEARNED 
+- how e often helps us understand how to decode our message
+- how we can find cube roots of bigger numbers
+
+  ## RESOURCES
+  https://crypto.stackexchange.com/questions/6713/low-public-exponent-attack-for-rsa
+  https://docs.python.org/3/library/stdtypes.html#bitwise-operations-on-integer-types
+  
+
+
